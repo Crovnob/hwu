@@ -1,0 +1,4 @@
+{
+  "name": "hwu",
+  "postStartCommand": "bash /workspaces/hwu/.devcontainer/post-start.sh"
+}
