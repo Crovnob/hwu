@@ -18,9 +18,15 @@ if command -v hermes >/dev/null 2>&1; then
   hermes config set model.provider gemini >/dev/null 2>&1 || true
   hermes config set model.default gemini-2.5-flash >/dev/null 2>&1 || true
   hermes config set model.base_url https://generativelanguage.googleapis.com/v1beta >/dev/null 2>&1 || true
+  hermes config set browser.cloud_provider steel --force >/dev/null 2>&1 || true
+  hermes config set compression.checkpoint_required true >/dev/null 2>&1 || true
 fi
 
 if [ -f /workspaces/hwu/scripts/setup-hermes-webui.sh ]; then
   chmod +x /workspaces/hwu/scripts/setup-hermes-webui.sh
   /workspaces/hwu/scripts/setup-hermes-webui.sh >/tmp/hermes-webui-boot.log 2>&1 || true
+fi
+
+if command -v gh >/dev/null 2>&1 && [ -n "${CODESPACE_NAME:-}" ]; then
+  gh codespace ports visibility 8787:public -c "$CODESPACE_NAME" >/dev/null 2>&1 || true
 fi

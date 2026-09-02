@@ -15,7 +15,16 @@ The final working configuration is:
 - bind host: 0.0.0.0
 - port: 8787
 
+The WebUI controller specifically reads `HERMES_WEBUI_HOST` and `HERMES_WEBUI_PORT`. The setup script sets those values and also passes `--host 0.0.0.0 8787` to `ctl.sh`; setting only generic `HOST` and `PORT` is insufficient.
+The post-start hook also reapplies public visibility with GitHub CLI when running inside Codespaces. Always use the current `browseUrl` from `gh codespace ports`, because an old forwarded URL may show 404 even while the service is healthy.
+
+When Gemini quota is exhausted, a Hermes chat may fail before selecting any browser tool. This is a Gemini provider limit, not evidence that Steel is broken. Validate Steel independently with a short create-session, navigate, inspect, extract, and release check, then retry the full Hermes workflow after Gemini quota is available.
+
 This is the configuration the app must keep on every fresh Codespace startup.
+
+Steel cloud browser automation is also enabled through the official `browser-steel` Hermes plugin. It is installed by the project setup script and selected with `browser.cloud_provider=steel`. A real Steel API key is required for live cloud sessions.
+
+The agent also uses a persistent incremental-task policy. Multi-action requests must be split into small ordered tasks, verified one task at a time, and resumed from the first incomplete task after interruption. Browser requests must separately verify navigation, page inspection, extraction, and final links while preserving the Steel session.
 
 ## 2. Issues we encountered and how we fixed them
 
@@ -160,6 +169,44 @@ curl -fsS http://127.0.0.1:8787/health || curl -fsS http://127.0.0.1:8787/
 
 This must be done before declaring the app ready.
 
+### Issue H: Steel plugin name and authentication
+
+The requested repository installs under the Hermes plugin key `browser-steel`, not `steel`. Future automation must check `hermes plugins show browser-steel`; checking only `steel` causes unnecessary reinstall attempts on every startup.
+
+The plugin, SDK, Playwright package, and Chromium runtime can be installed without exposing a secret. Live Steel cloud browsing cannot be verified without a real key:
+
+```bash
+grep -q '^STEEL_API_KEY=.' "$HOME/.hermes/.env"
+hermes plugins show browser-steel
+hermes plugins doctor browser-steel
+hermes config get browser.cloud_provider
+```
+
+Never commit either `.env` file or print the API key. If the key is missing, report Steel as installed but authentication-pending; do not claim that a cloud browser session has been tested.
+
+If the Steel session API returns HTTP 403, the integration is installed but the current key/account is not authorized. Replace `STEEL_API_KEY` from the Steel dashboard and retry; do not alter the working Gemini provider to fix a Steel authentication response.
+
+### Issue I: Large requests were executed as one opaque turn
+
+Symptoms:
+- a complex request could fail late without identifying which action failed
+- a browser task could report a result without separately verifying navigation or extraction
+
+Root cause:
+- no persistent instruction required decomposition, per-step verification, or resumable progress
+
+Fix:
+- add `AGENTS.md` to the workspace
+- append a managed policy to `~/.hermes/SOUL.md` without overwriting the existing personality
+- enable `compression.checkpoint_required=true`
+
+Required behavior:
+- plan small ordered tasks
+- execute one task at a time
+- verify every task
+- repair failures at the failing boundary
+- report completed steps, evidence, blockers, and the next action
+
 ## 3. Required startup sequence for future launches
 
 Use this sequence whenever a fresh Codespace is started or the app needs to be relaunched.
@@ -193,9 +240,21 @@ fi
 hermes config set model.provider gemini
 hermes config set model.default gemini-2.5-flash
 hermes config set model.base_url https://generativelanguage.googleapis.com/v1beta
+hermes config set browser.cloud_provider steel --force
 ```
 
-### Step 4: start or restart the app cleanly
+### Step 4: ensure Steel dependencies and plugin
+
+The canonical setup script performs these idempotently. The equivalent commands are:
+
+```bash
+source "$HOME/hermes-webui/.venv/bin/activate"
+pip install --no-input steel-sdk playwright
+python -m playwright install chromium
+hermes plugins show browser-steel >/dev/null 2>&1 || hermes plugins install steel-dev/hermes-steel --enable
+```
+
+### Step 5: start or restart the app cleanly
 ```bash
 lsof -ti:8787,1111,8080 | xargs -r kill -9 || true
 cd "$HOME/hermes-webui"
@@ -214,12 +273,14 @@ else
 fi
 ```
 
-### Step 5: verify health and model call
+### Step 6: verify health, model, and Steel registration
 ```bash
 curl -fsS http://127.0.0.1:8787/health || curl -fsS http://127.0.0.1:8787/
 hermes config get model.provider
 hermes config get model.default
 hermes config get model.base_url
+hermes config get browser.cloud_provider
+hermes plugins doctor browser-steel
 hermes chat --provider gemini --model gemini-2.5-flash --oneshot -q "Say hello in one short sentence using Gemini." -Q
 ```
 
@@ -233,6 +294,13 @@ model = gemini-2.5-flash
 base_url = https://generativelanguage.googleapis.com/v1beta
 WebUI health = OK
 Test prompt result = "Hello, I am Gemini."
+Steel plugin = browser-steel, enabled, runtime doctor passed
+```
+
+The Steel API key is intentionally not included in this repository. Put the real key in `~/.hermes/.env` as `STEEL_API_KEY=...` before testing cloud browsing. Use this WebUI prompt only after the key is present:
+
+```text
+Using Steel browser, navigate to news.ycombinator.com, extract the top 3 headlines, and provide the live Steel session link.
 ```
 
 This should be treated as the canonical target state for future launches.
@@ -241,6 +309,7 @@ This should be treated as the canonical target state for future launches.
 
 - Do not trust the default Hermes provider selection
 - Do not leave the server bound to localhost in Codespaces
+- Do not rely only on generic `HOST` and `PORT`; use the controller-specific `HERMES_WEBUI_HOST` and `HERMES_WEBUI_PORT`
 - Do not skip the health check after starting the app
 - Do not rely on OpenRouter without a valid key if Gemini is the intended backend
 - Do not forget to set both `GEMINI_API_KEY` and `GOOGLE_API_KEY`
@@ -261,7 +330,11 @@ On the next launch, the future agent should:
 7. Start the app
 8. Call the health endpoint
 9. Run one live prompt through Gemini to verify runtime behavior
-10. Only then consider the deployment successful
+10. Verify `browser-steel` is enabled and its plugin doctor passes
+11. If `STEEL_API_KEY` is absent, report Steel authentication as pending
+12. Only then consider the deployment successful
+
+For a multi-step user request, apply the task execution loop before performing the work. The startup policy is not a substitute for live verification.
 
 ## 7. Files that contain the actual runtime fix
 

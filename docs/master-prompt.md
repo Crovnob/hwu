@@ -10,6 +10,17 @@ Execute this setup in a rigorous, phased sequence. Do not skip any phase, verify
 
 You must use a Gemini-compatible API configuration to validate the app works with full functionality. If `GEMINI_API_KEY` is available, configure the app to use it. If the project requires a generic API key field, copy the Gemini key into the equivalent environment variable.
 
+### Mandatory task execution policy
+For every request containing multiple meaningful actions, use incremental execution:
+1. Split the request into the smallest useful ordered tasks and state the completion condition.
+2. Execute one task at a time.
+3. Verify each task with the cheapest relevant check before continuing.
+4. If a task fails, diagnose and repair that task before moving on; never claim success from configuration alone.
+5. Preserve completed work and resume from the first incomplete task after interruption.
+6. For browser requests, use Steel browser tools, verify navigation and extraction separately, preserve the session until completion, and return the live Steel session URL when available.
+
+This policy is also installed in the Hermes workspace instructions and global `SOUL.md` by the startup script. Do not replace an explicitly requested browser action with a normal HTTP request.
+
 ---
 
 ### Phase 1: Environment & System Prerequisites Verification

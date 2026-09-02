@@ -193,11 +193,54 @@ Store automation in the repository under `scripts/` and include a documented pro
 
 ---
 
+## 10. Steel cloud browser integration
+
+### Requirement
+Hermes WebUI needs cloud browser automation through Steel while retaining Gemini, existing configuration, and conversation state.
+
+### Checks performed before implementation
+- Confirmed the Hermes CLI supports Git-based plugin installation.
+- Confirmed `https://github.com/steel-dev/hermes-steel.git` exists.
+- Confirmed `steel-sdk` and `playwright` are available from the Python package index.
+- Confirmed the installed plugin key is `browser-steel`, not `steel`.
+
+### Implementation
+The setup script now:
+- installs and enables `steel-dev/hermes-steel` only when `browser-steel` is not already installed
+- sets `browser.cloud_provider=steel`
+- installs `steel-sdk` and `playwright` in `~/hermes-webui/.venv`
+- installs the Playwright Chromium runtime
+- appends `STEEL_API_KEY`, `BROWSER_PROVIDER=steel`, and `BROWSER_HEADLESS=true` only when absent
+- never overwrites Gemini keys, the gateway token, or session data
+
+### Important authentication boundary
+The plugin can be installed and validated without printing or committing a secret, but live Steel cloud browsing requires a real `STEEL_API_KEY` in `~/.hermes/.env`. An empty or placeholder key must not be reported as working browser automation.
+
+If the Steel session API returns HTTP 403, treat that as an invalid, revoked, or unauthorized Steel key/account. Do not change Gemini configuration to address it; replace the Steel key from the Steel dashboard and retry the session test.
+
+### Verification
+The following checks passed after installation:
+```bash
+hermes plugins show browser-steel
+hermes plugins doctor browser-steel
+hermes config get browser.cloud_provider
+curl -fsS http://127.0.0.1:8787/health
+```
+
+The plugin doctor reported successful runtime discovery, manifest parsing, import, and registration of its tools. It also reported manifest metadata warnings for declared hooks/tools; these are non-fatal because runtime registration passed.
+
+---
+
 ## Lessons learned
 - Always bind the server to `0.0.0.0` in Codespaces.
+- Hermes WebUI `ctl.sh` reads `HERMES_WEBUI_HOST` and `HERMES_WEBUI_PORT`; generic `HOST` and `PORT` alone do not change its binding.
+- Codespaces public visibility can reset or leave an old browser URL stale; reapply `gh codespace ports visibility 8787:public` during startup and verify the current `browseUrl`.
+- A multi-step Hermes/Gemini browser prompt can be blocked before tool execution by Gemini free-tier `429` quota; test Steel’s browser path independently before changing browser code.
 - Always reload PATH after package installs.
 - Always check port occupancy before starting services.
 - Always create `.env` values with secure defaults.
 - Always validate with an HTTP health check.
 - Always keep a Gemini-compatible API key in the runtime environment.
+- Use the actual Steel plugin key `browser-steel` when checking installation state.
+- Require a real `STEEL_API_KEY` before claiming cloud browser automation is live.
 - Always document fixes as they are discovered so that the same mistakes are not repeated.
